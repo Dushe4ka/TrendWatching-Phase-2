@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # Сервис Qdrant
+  qdrant:
+    image: qdrant/qdrant
+    container_name: trendwatching_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC
+    volumes:
+      - ./qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Основной сервис проекта
+  trendwatching:
+    build: .
+    container_name: trendwatching_app
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # Порт для веб-интерфейса/API
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - PYTHONUNBUFFERED=1
+    command: >
+      sh -c "
+      echo 'Ожидание готовности Qdrant...' &&
+      while ! nc -z qdrant 6333; do
+        sleep 1
+      done &&
+      echo 'Qdrant готов. Запуск приложения...' &&
+      python main.py
+      "
+
+volumes:
+  qdrant_data:
+  app_data: 
