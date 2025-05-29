@@ -15,23 +15,43 @@ class VectorStore:
     def __init__(
         self,
         collection_name: str = "trends",
-        vector_size: int = 384,  # Размерность для all-MiniLM-L6-v2
+        embedding_type: str = "openai",  # "ollama" или "openai"
+        openai_model: str = "text-embedding-3-small",  # для openai
         host: str = "localhost",
         port: int = 6333
     ):
         """
-        Инициализация хранилища векторов
+        Инициализация векторного хранилища
         
         Args:
-            collection_name: Название коллекции в Qdrant
-            vector_size: Размерность векторов
+            collection_name: Название коллекции
+            embedding_type: Тип эмбеддингов ("ollama" или "openai")
+            openai_model: Название модели для OpenAI
             host: Хост Qdrant
             port: Порт Qdrant
         """
         self.collection_name = collection_name
-        self.vector_size = vector_size
+        self.embedding_type = embedding_type
         self.client = QdrantClient(host=host, port=port)
-        self.text_processor = TextProcessor()
+        self.text_processor = TextProcessor(
+            embedding_type=embedding_type,
+            openai_model=openai_model
+        )
+        
+        # Определяем размерность векторов в зависимости от типа эмбеддингов
+        if embedding_type == "ollama":
+            self.vector_size = 3072
+        elif embedding_type == "openai":
+            if openai_model == "text-embedding-3-small":
+                self.vector_size = 1536
+            elif openai_model == "text-embedding-3-large":
+                self.vector_size = 3072
+            elif openai_model == "text-embedding-ada-002":
+                self.vector_size = 1536
+            else:
+                raise ValueError(f"Неподдерживаемая модель OpenAI: {openai_model}")
+        else:
+            raise ValueError(f"Неподдерживаемый тип эмбеддингов: {embedding_type}")
         
         # Создаем коллекцию, если она не существует
         self._create_collection_if_not_exists()
@@ -40,24 +60,24 @@ class VectorStore:
         """Создает коллекцию в Qdrant, если она не существует"""
         try:
             collections = self.client.get_collections().collections
-            exists = any(col.name == self.collection_name for col in collections)
+            collection_names = [collection.name for collection in collections]
             
-            if not exists:
+            if self.collection_name not in collection_names:
+                logger.info(f"Создание коллекции {self.collection_name}")
+                
+                # Создаем коллекцию с нужной размерностью векторов
                 self.client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config=VectorParams(
                         size=self.vector_size,
-                        distance=Distance.COSINE,
-                        on_disk=True  # Сохраняем векторы на диск
-                    ),
-                    optimizers_config=models.OptimizersConfigDiff(
-                        indexing_threshold=0,  # Индексируем сразу
-                        memmap_threshold=10000  # Используем memory mapping для больших коллекций
+                        distance=Distance.COSINE
                     )
                 )
-                logger.info(f"Создана новая коллекция: {self.collection_name}")
+                
+                logger.info(f"Коллекция {self.collection_name} создана успешно")
             else:
                 logger.info(f"Коллекция {self.collection_name} уже существует")
+                
         except Exception as e:
             logger.error(f"Ошибка при создании коллекции: {str(e)}")
             raise
@@ -179,7 +199,7 @@ class VectorStore:
         Args:
             query_vector: Вектор запроса.
             score_threshold: Минимальный порог схожести (0.0 - 1.0).
-            limit: Максимальное количество результатов.
+            limit: Максимальное количество результатов. Если None, возвращаются все релевантные результаты.
             category: Фильтр по категории.
             start_date: Начальная дата.
             end_date: Конечная дата.
@@ -214,7 +234,7 @@ class VectorStore:
                 query_vector=query_vector,
                 query_filter=Filter(must=filters) if filters else None,
                 score_threshold=score_threshold,
-                limit=limit or 100  # Разумный лимит по умолчанию
+                limit=limit if limit is not None else 1000000  # Если limit не указан, используем максимальное значение
             )
             
             # Преобразование результатов в нужный формат
@@ -225,7 +245,8 @@ class VectorStore:
                     "title": hit.payload.get("title", ""),
                     "date": hit.payload.get("date"),
                     "category": hit.payload.get("category"),
-                    "score": hit.score  # Для отладки
+                    "score": hit.score,  # Для отладки
+                    "url": hit.payload.get("url", "")  # Добавлено поле url
                 }
                 for hit in search_result
             ]
@@ -372,4 +393,25 @@ class VectorStore:
             return True
         except Exception as e:
             logger.error(f"Ошибка при добавлении вектора: {str(e)}")
+            return False
+
+    def recreate_collection(self) -> bool:
+        """
+        Пересоздает коллекцию с новыми параметрами
+        
+        Returns:
+            bool: True если успешно, False в случае ошибки
+        """
+        try:
+            # Удаляем существующую коллекцию
+            self.client.delete_collection(collection_name=self.collection_name)
+            logger.info(f"Коллекция {self.collection_name} удалена")
+            
+            # Создаем новую коллекцию
+            self._create_collection_if_not_exists()
+            logger.info(f"Коллекция {self.collection_name} пересоздана с размерностью {self.vector_size}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка при пересоздании коллекции: {str(e)}")
             return False 

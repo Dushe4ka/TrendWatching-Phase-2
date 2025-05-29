@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
-from prompt_manager import PromptManager
 from logger_config import setup_logger
 from config import get_provider_config, get_api_key, CURRENT_PROVIDER
 
@@ -19,7 +18,6 @@ class BaseLLMClient:
     
     def __init__(self):
         """Инициализация базового клиента"""
-        self.prompt_manager = PromptManager()
         logger.info(f"{self.__class__.__name__} инициализирован")
     
     def analyze_text(self, prompt: str, query: str) -> Dict[str, Any]:
@@ -45,7 +43,12 @@ class BaseLLMClient:
         Returns:
             List[str]: Список ключевых слов
         """
-        prompt = self.prompt_manager.get_keywords_extraction_prompt(query)
+        prompt = f"""
+        Извлеки ключевые слова из следующего запроса. 
+        Верни только список слов через запятую, без дополнительных пояснений.
+        
+        Запрос: {query}
+        """
         response = self.analyze_text(prompt, query)
         keywords = [k.strip() for k in response.get('analysis', '').split(',') if k.strip()]
         return keywords if keywords else [query]
@@ -62,7 +65,20 @@ class BaseLLMClient:
         Returns:
             List[Dict[str, Any]]: Список данных о трендах
         """
-        prompt = self.prompt_manager.get_trend_extraction_prompt(text, analysis, query)
+        prompt = f"""
+        Проанализируй следующий текст и выдели основные тренды и паттерны.
+        Для каждого тренда укажи:
+        1. Название тренда
+        2. Описание
+        3. Важность (высокая/средняя/низкая)
+        4. Подтверждающие факты из текста
+        
+        Текст: {text}
+        
+        Анализ: {analysis}
+        
+        Запрос пользователя: {query}
+        """
         response = self.analyze_text(prompt, text)
         return response.get('trends', [])
 
@@ -105,9 +121,29 @@ class BaseLLMClient:
 class DeepseekClient(BaseLLMClient):
     """Клиент для работы с Deepseek API через LangChain"""
     
-    def __init__(self):
+    def __init__(self, api_key: str = None):
         """Инициализация клиента Deepseek"""
         super().__init__()
+        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+        if not self.api_key:
+            raise ValueError("DEEPSEEK_API_KEY не найден в переменных окружения")
+        
+        # Словарь с контекстными окнами для разных моделей
+        self.context_windows = {
+            "deepseek-chat": 64_000,  # 64K токенов
+            "deepseek-reasoner": 64_000,  # 64K токенов
+            "gpt-4o": 128_000,  # 128K токенов
+            "gpt-4o-mini": 128_000,  # 128K токенов
+            "o1-preview": 128_000,  # 128K токенов
+            "o1-mini": 128_000,  # 128K токенов
+            "gemini-1.5-pro": 1_000_000,  # 1M токенов
+            "gemini-2.0-pro": 2_000_000,  # 2M токенов
+            "gemini-flash": 1_000_000,  # 1M токенов
+        }
+        
+        # По умолчанию используем deepseek-chat
+        self.model = "deepseek-chat"
+        
         config = get_provider_config("deepseek")
         self.llm = ChatDeepSeek(
             model=config["model"],
@@ -118,6 +154,26 @@ class DeepseekClient(BaseLLMClient):
         )
         logger.info("DeepseekClient инициализирован")
     
+    def get_max_context_size(self) -> int:
+        """
+        Возвращает максимальный размер контекста для текущей модели
+        
+        Returns:
+            int: Максимальное количество токенов в контексте
+        """
+        return self.context_windows.get(self.model, 64_000)  # По умолчанию 64K если модель не найдена
+
+    def set_model(self, model_name: str):
+        """
+        Устанавливает модель для использования
+        
+        Args:
+            model_name: Название модели из списка доступных
+        """
+        if model_name not in self.context_windows:
+            raise ValueError(f"Модель {model_name} не поддерживается. Доступные модели: {list(self.context_windows.keys())}")
+        self.model = model_name
+
     def analyze_text(self, prompt: str, query: str) -> Dict[str, Any]:
         """
         Анализ текста с помощью Deepseek

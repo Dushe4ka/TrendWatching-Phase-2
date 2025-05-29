@@ -12,11 +12,11 @@ from aiogram.types import FSInputFile
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
-from trend_analyzer import TrendAnalyzer
 from logger_config import setup_logger
 from vector_store import VectorStore
 from text_processor import TextProcessor
 from llm_client import get_llm_client
+from usecases.analysis import analyze_trend
 
 # Настройка логирования
 logging.basicConfig(
@@ -40,17 +40,13 @@ dp = Dispatcher(storage=storage)
 vector_store = VectorStore()
 text_processor = TextProcessor()
 llm_client = get_llm_client()
-analyzer = TrendAnalyzer()
 
 # Состояния FSM
 class CSVUpload(StatesGroup):
     waiting_for_file = State()
 
-class AnalyticsStates(StatesGroup):
-    waiting_for_analysis_type = State()
+class AnalysisStates(StatesGroup):
     waiting_for_category = State()
-    waiting_for_start_date = State()
-    waiting_for_end_date = State()
     waiting_for_query = State()
 
 def clean_source_data(source: Dict[str, Any]) -> Dict[str, Any]:
@@ -98,46 +94,12 @@ async def cmd_start(message: types.Message):
     )
 
 @dp.message(Command("analyze"))
-async def cmd_analyze(message: types.Message):
-    # Создаем инлайн-клавиатуру с типами анализа
-    keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                types.InlineKeyboardButton(
-                    text="🔍 Глубокий анализ",
-                    callback_data="deep_analysis"
-                )
-            ],
-            [
-                types.InlineKeyboardButton(
-                    text="🚀 Быстрый анализ",
-                    callback_data="quick_analysis"
-                )
-            ]
-        ]
-    )
-    
-    await message.answer(
-        "📊 Выберите тип анализа:\n\n"
-        "🔍 Глубокий анализ - полный поиск по всему векторному хранилищу\n"
-        "🚀 Быстрый анализ - анализ на основе ключевых слов",
-        reply_markup=keyboard
-    )
-
-@dp.callback_query(F.data.in_(["quick_analysis", "deep_analysis"]))
-async def process_analysis_type(callback: types.CallbackQuery, state: FSMContext):
-    # Сохраняем тип анализа
-    analysis_type = "🔍 Глубокий анализ" if callback.data == "deep_analysis" else "🚀 Быстрый анализ"
-    await state.update_data(analysis_type=analysis_type)
-    
-    # Отвечаем на callback
-    await callback.answer()
-    
+async def cmd_analyze(message: types.Message, state: FSMContext):
     # Получаем список категорий
     categories = vector_store.get_categories()
     
     if not categories:
-        await callback.message.answer("❌ Нет доступных категорий для анализа")
+        await message.answer("❌ Нет доступных категорий для анализа")
         return
     
     # Создаем клавиатуру с категориями
@@ -146,196 +108,65 @@ async def process_analysis_type(callback: types.CallbackQuery, state: FSMContext
         resize_keyboard=True
     )
     
-    await callback.message.answer(
+    await message.answer(
         "📊 Выберите категорию для анализа:",
         reply_markup=keyboard
     )
-    await state.set_state(AnalyticsStates.waiting_for_category)
+    await state.set_state(AnalysisStates.waiting_for_category)
 
-@dp.message(AnalyticsStates.waiting_for_category)
+@dp.message(AnalysisStates.waiting_for_category)
 async def process_category(message: types.Message, state: FSMContext):
     category = message.text
     
     # Сохраняем категорию
     await state.update_data(category=category)
     
-    # Создаем клавиатуру с кнопкой "Пропустить"
-    keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                types.InlineKeyboardButton(
-                    text="⏩ Пропустить",
-                    callback_data="skip_date"
-                )
-            ]
-        ]
-    )
-    
     await message.answer(
-        "📅 Введите начальную дату в формате ДД.ММ.ГГГГ:",
-        reply_markup=keyboard
+        "❓ Введите ваш запрос для анализа:",
+        reply_markup=types.ReplyKeyboardRemove()
     )
-    await state.set_state(AnalyticsStates.waiting_for_start_date)
+    await state.set_state(AnalysisStates.waiting_for_query)
 
-@dp.message(AnalyticsStates.waiting_for_start_date)
-async def process_start_date(message: types.Message, state: FSMContext):
-    date_str = message.text.strip()
-    
-    # Создаем клавиатуру с кнопкой "Пропустить"
-    keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                types.InlineKeyboardButton(
-                    text="⏩ Пропустить",
-                    callback_data="skip_date"
-                )
-            ]
-        ]
-    )
-    
-    try:
-        start_date = datetime.strptime(date_str, "%d.%m.%Y")
-        await state.update_data(start_date=start_date)
-        
-        await message.answer(
-            "📅 Введите конечную дату в формате ДД.ММ.ГГГГ:",
-            reply_markup=keyboard
-        )
-        await state.set_state(AnalyticsStates.waiting_for_end_date)
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат даты. Попробуйте еще раз в формате ДД.ММ.ГГГГ",
-            reply_markup=keyboard
-        )
-
-@dp.message(AnalyticsStates.waiting_for_end_date)
-async def process_end_date(message: types.Message, state: FSMContext):
-    date_str = message.text.strip()
-    
-    # Создаем клавиатуру с кнопкой "Пропустить"
-    keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                types.InlineKeyboardButton(
-                    text="⏩ Пропустить",
-                    callback_data="skip_date"
-                )
-            ]
-        ]
-    )
-    
-    try:
-        end_date = datetime.strptime(date_str, "%d.%m.%Y")
-        await state.update_data(end_date=end_date)
-        
-        await message.answer(
-            "❓ Введите ваш запрос для анализа:",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        await state.set_state(AnalyticsStates.waiting_for_query)
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат даты. Попробуйте еще раз в формате ДД.ММ.ГГГГ",
-            reply_markup=keyboard
-        )
-
-@dp.callback_query(F.data == "skip_date")
-async def process_skip_date(callback: types.CallbackQuery, state: FSMContext):
-    """Обработчик нажатия на кнопку 'Пропустить'"""
-    # Получаем текущее состояние
-    current_state = await state.get_state()
-    
-    if current_state == AnalyticsStates.waiting_for_start_date.state:
-        # Если мы в состоянии выбора начальной даты
-        await state.update_data(start_date=None)
-        await callback.message.answer(
-            "📅 Введите конечную дату в формате ДД.ММ.ГГГГ:",
-            reply_markup=types.InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        types.InlineKeyboardButton(
-                            text="⏩ Пропустить",
-                            callback_data="skip_date"
-                        )
-                    ]
-                ]
-            )
-        )
-        await state.set_state(AnalyticsStates.waiting_for_end_date)
-    
-    elif current_state == AnalyticsStates.waiting_for_end_date.state:
-        # Если мы в состоянии выбора конечной даты
-        await state.update_data(end_date=None)
-        await callback.message.answer(
-            "❓ Введите ваш запрос для анализа:",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        await state.set_state(AnalyticsStates.waiting_for_query)
-    
-    # Отвечаем на callback
-    await callback.answer()
-
-@dp.message(AnalyticsStates.waiting_for_query)
+@dp.message(AnalysisStates.waiting_for_query)
 async def process_query(message: types.Message, state: FSMContext):
     query = message.text
     
     # Получаем сохраненные данные
     data = await state.get_data()
-    analysis_type = data.get("analysis_type")
     category = data.get("category")
-    start_date = data.get("start_date")
-    end_date = data.get("end_date")
     
     # Отправляем сообщение о начале анализа
     status_message = await message.answer("🔄 Начинаю анализ...")
     
     try:
-        # Выполняем анализ в зависимости от типа
-        if analysis_type == "🚀 Быстрый анализ":
-            result = analyzer.analyze_trends_quick(
-                query=query,
-                category=category,
-                start_date=start_date,
-                end_date=end_date
-            )
-        else:  # Глубокий анализ
-            result = analyzer.analyze_trends_deep(
-                query=query,
-                category=category,
-                start_date=start_date,
-                end_date=end_date
-            )
+        # Выполняем анализ
+        result = analyze_trend(
+            category=category,
+            user_query=query
+        )
         
-        if "error" in result:
-            await status_message.edit_text(f"❌ Ошибка: {result['error']}")
+        if result['status'] == 'error':
+            await status_message.edit_text(f"❌ Ошибка: {result['message']}")
             return
         
         # Формируем финальный ответ
         response_parts = []
         
         # Заголовок
-        response_parts.append(f"📊 Результаты анализа ({analysis_type}):\n")
+        response_parts.append("📊 Результаты анализа:\n")
         
         # Контекст
         response_parts.append("📝 Контекст анализа:")
-        response_parts.append(f"• Категория: {result['context']['category']}")
-        response_parts.append(f"• Период: {result['context']['period']}")
-        response_parts.append(f"• Найдено материалов: {result['context']['materials_count']}")
-        response_parts.append(f"• Количество чанков: {result['context']['chunks_count']}")
-        if 'keywords' in result['context']:
-            response_parts.append(f"• Ключевые слова: {', '.join(result['context']['keywords'])}")
+        response_parts.append(f"• Категория: {category}")
+        response_parts.append(f"• Тематика: {result['theme']}")
+        response_parts.append(f"• Найдено материалов: {result['materials_count']}")
         response_parts.append("")
         
         # Финальный отчет
-        if result.get("final_report"):
+        if result.get("analysis"):
             response_parts.append("📈 ФИНАЛЬНЫЙ ОТЧЕТ")
             response_parts.append("="*50)
-            report = result['final_report'].get('analysis', '')
-            if report.startswith('```markdown'):
-                report = report[11:]
-            if report.endswith('```'):
-                report = report[:-3]
-            response_parts.append(report.strip())
+            response_parts.append(result['analysis'].strip())
             response_parts.append("="*50)
         
         # Отправляем ответ частями

@@ -1,31 +1,86 @@
 import logging
 from typing import List, Dict, Any, Generator
-from sentence_transformers import SentenceTransformer
 import numpy as np
 import re
+import requests
+from langchain_ollama import OllamaEmbeddings
+from langchain_openai import OpenAIEmbeddings
+from dotenv import load_dotenv
+import os
+
+# Загружаем переменные окружения
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 class TextProcessor:
     def __init__(
         self,
-        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        embedding_type: str = "ollama",  # "ollama" или "openai"
+        model_name: str = "llama3.2:latest",  # для ollama
+        openai_model: str = "text-embedding-3-small",  # для openai
         max_chunk_size: int = 1024,
-        min_chunk_size: int = 50
+        min_chunk_size: int = 50,
+        base_url: str = "http://localhost:11434"
     ):
         """
         Инициализация процессора текста
         
         Args:
-            model_name: Название модели для создания эмбеддингов
+            embedding_type: Тип эмбеддингов ("ollama" или "openai")
+            model_name: Название модели для Ollama
+            openai_model: Название модели для OpenAI (text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002)
             max_chunk_size: Максимальный размер чанка в токенах
             min_chunk_size: Минимальный размер чанка в токенах
+            base_url: URL для Ollama API
         """
-        self.model = SentenceTransformer(model_name)
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
+        self.embedding_type = embedding_type
         
-        logger.info(f"Инициализирован TextProcessor с моделью {model_name}")
+        # Инициализация модели эмбеддингов
+        if embedding_type == "ollama":
+            self.model = OllamaEmbeddings(
+                model=model_name,
+                base_url=base_url
+            )
+            self.vector_size = 3072  # Размерность для Ollama
+        elif embedding_type == "openai":
+            if not os.getenv("OPENAI_API_KEY"):
+                raise ValueError("OPENAI_API_KEY не найден в переменных окружения")
+            
+            self.model = OpenAIEmbeddings(
+                model=openai_model,
+                openai_api_key=os.getenv("OPENAI_API_KEY")
+            )
+            # Размерность зависит от модели OpenAI
+            if openai_model == "text-embedding-3-small":
+                self.vector_size = 1536
+            elif openai_model == "text-embedding-3-large":
+                self.vector_size = 3072
+            elif openai_model == "text-embedding-ada-002":
+                self.vector_size = 1536
+            else:
+                raise ValueError(f"Неподдерживаемая модель OpenAI: {openai_model}")
+        else:
+            raise ValueError(f"Неподдерживаемый тип эмбеддингов: {embedding_type}")
+        
+        # Проверяем работу модели на тестовом запросе
+        try:
+            test_embedding = self.model.embed_query("test")
+            embedding_size = len(test_embedding)
+            logger.info(f"Тестовая векторизация успешна")
+            logger.info(f"Размерность эмбеддингов: {embedding_size}")
+            
+            # Проверяем, соответствует ли размерность ожидаемой
+            if embedding_size != self.vector_size:
+                logger.warning(f"Размерность эмбеддингов ({embedding_size}) отличается от ожидаемой ({self.vector_size})")
+                logger.warning("Возможно, потребуется пересоздать коллекцию в Qdrant с правильной размерностью")
+            
+        except Exception as e:
+            raise RuntimeError(f"Ошибка при тестовой векторизации: {str(e)}")
+        
+        logger.info(f"Инициализирован TextProcessor с моделью {model_name} (тип: {embedding_type})")
         logger.info(f"Параметры чанков: макс.размер={max_chunk_size}, мин.размер={min_chunk_size}")
     
     def clean_text(self, text: str) -> str:
@@ -179,13 +234,20 @@ class TextProcessor:
         try:
             if not texts:
                 return []
-                
+            
+            logger.info(f"Начало векторизации {len(texts)} текстов")
+            
             # Создаем эмбеддинги
-            embeddings = self.model.encode(texts, show_progress_bar=True)
+            embeddings = self.model.embed_documents(texts)
+            
+            # Проверяем размерность первого эмбеддинга
+            if embeddings and len(embeddings) > 0:
+                first_embedding = embeddings[0]
+                embedding_size = len(first_embedding)
+                logger.info(f"Размерность эмбеддингов: {embedding_size}")
             
             # Преобразуем в список numpy массивов
-            if isinstance(embeddings, np.ndarray):
-                embeddings = [embeddings[i] for i in range(len(embeddings))]
+            embeddings = [np.array(embedding) for embedding in embeddings]
             
             logger.info(f"Создано {len(embeddings)} эмбеддингов")
             return embeddings
