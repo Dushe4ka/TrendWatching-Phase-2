@@ -1,0 +1,81 @@
+2025-05-15 14:26:03,405 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 14:26:04,820 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 14:26:05,295 - main - INFO - Starting bot...
+2025-05-15 14:26:14,239 - vector_store - INFO - Найдено 1 уникальных категорий
+2025-05-15 14:26:14,240 - analytics - INFO - Найдено категорий: 1
+2025-05-15 14:26:23,439 - analytics - INFO - Начало анализа категории: Видеоигры
+2025-05-15 14:26:23,440 - analytics - INFO - Оптимальный размер батча: 20
+2025-05-15 14:26:30,560 - vector_store - INFO - Начало поиска векторов
+2025-05-15 14:26:30,560 - vector_store - INFO - Категория: Видеоигры
+2025-05-15 14:26:30,561 - vector_store - INFO - Период: None - текущая дата
+2025-05-15 14:26:30,585 - vector_store - INFO - Найдено 20 результатов
+2025-05-15 14:31:55,345 - analytics - ERROR - Ошибка при анализе категории: HTTP Client says - ClientConnectionError: Connector is closed.
+2025-05-15 14:33:26,072 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 14:33:27,264 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 14:33:27,664 - main - INFO - Starting bot...
+2025-05-15 14:33:46,956 - vector_store - INFO - Найдено 1 уникальных категорий
+2025-05-15 14:33:46,957 - analytics - INFO - Найдено категорий: 1
+2025-05-15 14:34:00,964 - analytics - INFO - Начало анализа категории: Видеоигры
+2025-05-15 14:34:00,965 - analytics - INFO - Оптимальный размер батча: 20
+2025-05-15 14:34:07,879 - vector_store - INFO - Начало поиска векторов
+2025-05-15 14:34:07,879 - vector_store - INFO - Категория: Видеоигры
+2025-05-15 14:34:07,880 - vector_store - INFO - Период: None - текущая дата
+2025-05-15 14:34:07,880 - vector_store - INFO - Смещение: 0, Лимит: 20
+2025-05-15 14:34:07,887 - vector_store - INFO - Найдено 20 результатов
+2025-05-15 15:00:43,793 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:00:45,088 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:01:41,029 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:01:42,152 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:06:36,914 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:06:38,051 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:06:59,155 - bot - WARNING - Ошибка подключения к Telegram API (попытка 1/3): HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Превышен таймаут семафора]
+2025-05-15 15:07:25,185 - bot - WARNING - Ошибка подключения к Telegram API (попытка 2/3): HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Превышен таймаут семафора]
+2025-05-15 15:07:51,228 - bot - ERROR - Не удалось установить команды бота после 3 попыток: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Превышен таймаут семафора]
+2025-05-15 15:12:45,346 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:12:46,492 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:13:44,564 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:13:45,725 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:17:21,549 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:17:23,575 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:22:20,711 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:22:21,881 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:25:17,588 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:25:18,921 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:25:22,135 - main - INFO - Starting bot...
+2025-05-15 15:25:55,202 - vector_store - INFO - Найдено 1 уникальных категорий
+2025-05-15 15:25:55,202 - analytics - INFO - Найдено категорий: 1
+2025-05-15 15:26:09,210 - bot - ERROR - Ошибка при анализе: 'Analytics' object has no attribute 'analyze_category'
+2025-05-15 15:26:59,568 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:27:00,688 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:27:01,120 - main - INFO - Starting bot...
+2025-05-15 15:27:05,845 - vector_store - INFO - Найдено 1 уникальных категорий
+2025-05-15 15:27:05,845 - analytics - INFO - Найдено категорий: 1
+2025-05-15 15:27:17,265 - bot - ERROR - Ошибка при анализе: object dict can't be used in 'await' expression
+2025-05-15 15:28:31,873 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:28:33,005 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:28:33,397 - main - INFO - Starting bot...
+2025-05-15 15:28:51,371 - vector_store - INFO - Найдено 1 уникальных категорий
+2025-05-15 15:28:51,371 - analytics - INFO - Найдено категорий: 1
+2025-05-15 15:28:58,851 - bot - ERROR - Ошибка при анализе: argument of type 'coroutine' is not iterable
+2025-05-15 15:29:50,075 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:29:51,213 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:29:51,561 - main - INFO - Starting bot...
+2025-05-15 15:29:51,787 - vector_store - INFO - Найдено 1 уникальных категорий
+2025-05-15 15:29:51,789 - analytics - INFO - Найдено категорий: 1
+2025-05-15 15:29:59,014 - llm_client - ERROR - Ошибка при анализе запроса через Deepseek: Error code: 403 - {'error': {'code': 'unsupported_country_region_territory', 'message': 'Country, region, or territory not supported', 'param': None, 'type': 'request_forbidden'}}
+2025-05-15 15:30:48,305 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:30:49,520 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:30:49,806 - main - INFO - Starting bot...
+2025-05-15 15:30:53,875 - vector_store - INFO - Найдено 1 уникальных категорий
+2025-05-15 15:30:53,875 - analytics - INFO - Найдено категорий: 1
+2025-05-15 15:31:02,485 - llm_client - ERROR - Региональное ограничение при доступе к API
+2025-05-15 15:32:41,272 - vector_store - INFO - Коллекция trends уже существует
+2025-05-15 15:32:42,459 - analytics - INFO - Инициализирован модуль аналитики с провайдером deepseek
+2025-05-15 15:32:42,890 - main - INFO - Starting bot...
+2025-05-15 15:32:48,043 - vector_store - INFO - Найдено 1 уникальных категорий
+2025-05-15 15:32:48,044 - analytics - INFO - Найдено категорий: 1
+2025-05-15 15:33:40,684 - vector_store - INFO - Начало поиска векторов
+2025-05-15 15:33:40,684 - vector_store - INFO - Категория: Видеоигры
+2025-05-15 15:33:40,685 - vector_store - INFO - Период: None - текущая дата
+2025-05-15 15:33:40,685 - vector_store - INFO - Смещение: 0, Лимит: 20
+2025-05-15 15:33:40,708 - vector_store - INFO - Найдено 20 результатов
