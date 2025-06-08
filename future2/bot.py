@@ -24,9 +24,8 @@ from database import (
     get_user_subscription,
     update_user_subscription,
     toggle_subscription,
-    update_subscription_categories,
     get_subscribed_users,
-    get_user_categories
+    create_subscription
 )
 
 # Настройка логирования
@@ -64,8 +63,29 @@ class DailyNewsStates(StatesGroup):
     waiting_for_date = State()
     waiting_for_category = State()
 
+class SubscriptionStates(StatesGroup):
+    waiting_for_category = State()
+
 # Инициализация планировщика
 scheduler = AsyncIOScheduler()
+
+async def initialize_scheduler():
+    """Инициализация и запуск планировщика"""
+    try:
+        if not scheduler.running:
+            # Запускаем планировщик в фоновом режиме
+            scheduler.start(paused=False)
+            logger.info("Планировщик запущен")
+            logger.info(f"Текущее время системы: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Проверяем существующие задачи
+            jobs = scheduler.get_jobs()
+            logger.info(f"Активные задачи планировщика: {len(jobs)}")
+            for job in jobs:
+                logger.info(f"Задача {job.id}: следующий запуск - {job.next_run_time if hasattr(job, 'next_run_time') else 'не определено'}")
+    except Exception as e:
+        logger.error(f"Ошибка при инициализации планировщика: {str(e)}")
+        raise
 
 def clean_source_data(source: Dict[str, Any]) -> Dict[str, Any]:
     """Очистка и валидация данных источника"""
@@ -110,8 +130,7 @@ async def cmd_start(message: types.Message):
         "/analyze - Начать анализ\n"
         "/upload - Загрузить CSV файл\n"
         "/daily_news - Получить сводку новостей за определенную дату\n"
-        "/subscribe - Включить/выключить подписку на дайджест\n"
-        "/categories - Выбрать категории для дайджеста"
+        "/subscribe - Подписаться на ежедневные новости"
     )
 
 @dp.message(Command("analyze"))
@@ -296,97 +315,77 @@ async def process_csv(message: types.Message, state: FSMContext):
         await state.clear()
 
 @dp.message(Command("subscribe"))
-async def cmd_subscribe(message: types.Message):
-    user_id = str(message.from_user.id)
-    enabled = toggle_subscription(user_id)
-    
-    if enabled:
-        await message.answer("✅ Подписка активирована! Вы будете получать ежедневные обновления.")
-    else:
-        await message.answer("❌ Подписка деактивирована. Вы больше не будете получать ежедневные обновления.")
-
-@dp.message(Command("categories"))
-async def cmd_categories(message: types.Message):
-    # Получаем список доступных категорий
+async def cmd_subscribe(message: types.Message, state: FSMContext):
+    """Начало процесса подписки"""
+    # Получаем список категорий
     categories = vector_store.get_categories()
     
     if not categories:
-        await message.answer("❌ Нет доступных категорий")
+        await message.answer("❌ Нет доступных категорий для подписки")
         return
     
-    # Получаем текущие категории пользователя
-    user_id = str(message.from_user.id)
-    user_categories = get_user_categories(user_id)
-    
     # Создаем клавиатуру с категориями
-    keyboard = []
-    for category in categories:
-        status = "✅" if category in user_categories else "❌"
-        keyboard.append([types.KeyboardButton(text=f"{status} {category}")])
-    
-    # Добавляем кнопку сохранения
-    keyboard.append([types.KeyboardButton(text="Сохранить")])
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text=category)] for category in categories],
+        resize_keyboard=True
+    )
     
     await message.answer(
-        "📋 Выберите категории для подписки:",
-        reply_markup=types.ReplyKeyboardMarkup(
-            keyboard=keyboard,
-            resize_keyboard=True
-        )
+        "📊 Выберите категорию для подписки:",
+        reply_markup=keyboard
     )
+    await state.set_state(SubscriptionStates.waiting_for_category)
 
-@dp.message(lambda message: message.text and (message.text.startswith("✅") or message.text.startswith("❌")))
-async def process_category_selection(message: types.Message):
-    # Получаем текущие категории пользователя
-    user_id = str(message.from_user.id)
-    user_categories = get_user_categories(user_id)
+@dp.message(SubscriptionStates.waiting_for_category)
+async def process_subscription_category(message: types.Message, state: FSMContext):
+    """Обработка выбранной категории для подписки"""
+    category = message.text
+    user_id = str(message.chat.id)
     
-    # Получаем список всех категорий
-    categories = vector_store.get_categories()
-    
-    # Создаем новую клавиатуру
-    keyboard = []
-    for category in categories:
-        if message.text.endswith(category):
-            # Если категория была выбрана, меняем её статус
-            if category in user_categories:
-                user_categories.remove(category)
-                status = "❌"
-            else:
-                user_categories.append(category)
-                status = "✅"
+    try:
+        # Создаем или обновляем подписку
+        if update_user_subscription(user_id, category):
+            await message.answer(
+                f"✅ Подписка активирована!\n"
+                f"Вы будете получать ежедневные обновления по категории: {category}",
+                reply_markup=types.ReplyKeyboardRemove()
+            )
+            
+            # Добавляем задачу в планировщик
+            job_id = f"daily_digest_{message.chat.id}"
+            try:
+                # Удаляем существующую задачу, если она есть
+                if scheduler.get_job(job_id):
+                    scheduler.remove_job(job_id)
+                    logger.info(f"Удалена существующая задача {job_id}")
+                
+                # Создаем новую задачу
+                job = scheduler.add_job(
+                    send_daily_digest,
+                    CronTrigger(hour=13, minute=45),
+                    args=[message.chat.id],
+                    id=job_id,
+                    replace_existing=True
+                )
+                
+                logger.info(f"Создана задача ежедневного дайджеста для чата {message.chat.id}")
+                
+            except Exception as e:
+                logger.error(f"Ошибка при создании задачи планировщика: {str(e)}")
         else:
-            # Для остальных категорий сохраняем текущий статус
-            status = "✅" if category in user_categories else "❌"
-        keyboard.append([types.KeyboardButton(text=f"{status} {category}")])
-    
-    # Добавляем кнопку сохранения
-    keyboard.append([types.KeyboardButton(text="Сохранить")])
-    
-    await message.answer(
-        "📋 Выберите категории для подписки:",
-        reply_markup=types.ReplyKeyboardMarkup(
-            keyboard=keyboard,
-            resize_keyboard=True
-        )
-    )
-
-@dp.message(lambda message: message.text == "Сохранить")
-async def save_categories(message: types.Message):
-    user_id = str(message.from_user.id)
-    user_categories = get_user_categories(user_id)
-    
-    # Обновляем категории в базе данных
-    if update_subscription_categories(user_id, user_categories):
+            await message.answer(
+                "❌ Произошла ошибка при активации подписки",
+                reply_markup=types.ReplyKeyboardRemove()
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при обработке подписки: {str(e)}")
         await message.answer(
-            "✅ Категории сохранены!",
+            "❌ Произошла ошибка при обработке подписки",
             reply_markup=types.ReplyKeyboardRemove()
         )
-    else:
-        await message.answer(
-            "❌ Произошла ошибка при сохранении категорий",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
+    
+    finally:
+        await state.clear()
 
 @dp.message(Command("daily_news"))
 async def cmd_daily_news(message: types.Message, state: FSMContext):
@@ -496,8 +495,7 @@ async def set_commands():
         types.BotCommand(command="start", description="Запустить бота"),
         types.BotCommand(command="analyze", description="Начать анализ"),
         types.BotCommand(command="upload", description="Загрузить CSV файл"),
-        types.BotCommand(command="subscribe", description="Включить/выключить подписку на дайджест"),
-        types.BotCommand(command="categories", description="Выбрать категории для дайджеста"),
+        types.BotCommand(command="subscribe", description="Подписаться на ежедневные новости"),
         types.BotCommand(command="daily_news", description="Получить сводку новостей за определенную дату")
     ]
     await bot.set_my_commands(commands)
@@ -521,38 +519,72 @@ async def send_welcome_message(chat_id: int):
 
 async def send_daily_digest(chat_id: int):
     try:
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        logger.info(f"Запуск ежедневного дайджеста для чата {chat_id} в {current_time}")
+        
         # Получаем настройки подписки пользователя
         user_id = str(chat_id)
         subscription = get_user_subscription(user_id)
+        logger.info(f"Настройки подписки для пользователя {user_id}: {subscription}")
         
         if not subscription.get('enabled', False):
+            logger.info(f"Пользователь {user_id} не подписан на дайджест")
             return
         
-        categories = subscription.get('categories', [])
-        if not categories:
+        category = subscription.get('category')
+        if not category:
+            logger.info(f"У пользователя {user_id} не выбрана категория для дайджеста")
             return
         
-        # Получаем данные для каждой категории
-        all_sources = []
-        for category in categories:
-            sources = get_data_by_category(category)
-            all_sources.extend(sources)
-        
-        if not all_sources:
-            return
-        
-        # Анализируем тренды
-        analysis = analyze_trend(all_sources)
+        # Получаем текущую дату
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        logger.info(f"Анализ данных за дату: {current_date}")
         
         # Формируем сообщение
-        message = "📊 Ежедневный дайджест:\n\n"
-        message += f"📈 Основные тренды:\n{analysis['trends']}\n\n"
-        message += f"🔍 Ключевые темы:\n{analysis['key_topics']}\n\n"
-        message += f"💡 Рекомендации:\n{analysis['recommendations']}"
+        message_parts = [f"📊 Ежедневный дайджест за {current_date}:\n"]
         
-        await bot.send_message(chat_id, message)
+        try:
+            logger.info(f"Начинаем анализ категории {category}")
+            result = analyze_trend(
+                category=category,
+                analysis_date=current_date
+            )
+            
+            if result['status'] == 'error':
+                logger.error(f"Ошибка при анализе категории {category}: {result['message']}")
+                return
+            
+            message_parts.append(f"\n📋 Категория: {category}")
+            message_parts.append("="*30)
+            if result.get("analysis"):
+                message_parts.append(result['analysis'].strip())
+            message_parts.append("="*30)
+            
+            logger.info("Анализ успешно завершен")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при анализе категории {category}: {str(e)}")
+            return
+        
+        if len(message_parts) > 1:  # Если есть результаты анализа
+            # Отправляем сообщение частями
+            message_text = "\n".join(message_parts)
+            message_chunks = [message_text[i:i+4000] for i in range(0, len(message_text), 4000)]
+            
+            logger.info(f"Отправляем сообщение из {len(message_chunks)} частей")
+            for i, chunk in enumerate(message_chunks, 1):
+                await bot.send_message(chat_id, chunk)
+                logger.info(f"Отправлена часть {i} из {len(message_chunks)}")
+        else:
+            logger.info("Нет данных для отправки")
+            await bot.send_message(chat_id, "📊 На сегодня нет новых материалов для анализа.")
+            
     except Exception as e:
         logger.error(f"Ошибка при отправке ежедневного дайджеста: {str(e)}")
+        try:
+            await bot.send_message(chat_id, "❌ Произошла ошибка при формировании ежедневного дайджеста. Пожалуйста, попробуйте позже.")
+        except:
+            pass
 
 @dp.message(F.new_chat_members)
 async def on_bot_added(message: types.Message):
@@ -563,25 +595,33 @@ async def on_bot_added(message: types.Message):
         # Отправляем приветственное сообщение
         await send_welcome_message(message.chat.id)
         
-        # Добавляем задачу в планировщик для этого чата
-        scheduler.add_job(
-            send_daily_digest,
-            CronTrigger(hour=9, minute=0),
-            args=[message.chat.id],
-            id=f"daily_digest_{message.chat.id}",
-            replace_existing=True
-        )
+        # Создаем подписку для пользователя
+        user_id = str(message.chat.id)
+        try:
+            create_subscription(user_id)
+            logger.info(f"Создана подписка для пользователя {user_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при создании подписки: {str(e)}")
 
 async def main():
     """Основная функция запуска бота"""
-    # Запускаем планировщик
-    scheduler.start()
-    
-    # Устанавливаем команды бота
-    await set_commands()
-    
-    # Запускаем бота
-    await dp.start_polling(bot)
+    try:
+        # Инициализируем планировщик
+        await initialize_scheduler()
+        
+        # Проверяем, что планировщик запущен
+        if not scheduler.running:
+            logger.error("Планировщик не запущен!")
+            return
+            
+        # Устанавливаем команды бота
+        await set_commands()
+        
+        # Запускаем бота
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Ошибка при запуске бота: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())

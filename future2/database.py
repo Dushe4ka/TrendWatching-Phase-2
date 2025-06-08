@@ -156,27 +156,27 @@ def get_user_subscription(user_id: str) -> Dict[str, Any]:
         subscription = db.subscriptions.find_one({"user_id": user_id})
         if subscription:
             return {
-                'enabled': subscription.get('enabled', True),
-                'categories': subscription.get('categories', [])
+                'enabled': subscription.get('enabled', False),
+                'category': subscription.get('category', None)
             }
         return {
-            'enabled': True,
-            'categories': []
+            'enabled': False,
+            'category': None
         }
     except Exception as e:
         logger.error(f"Ошибка при получении подписки пользователя {user_id}: {str(e)}")
         return {
-            'enabled': True,
-            'categories': []
+            'enabled': False,
+            'category': None
         }
 
-def update_user_subscription(user_id: str, settings: Dict[str, Any]) -> bool:
+def update_user_subscription(user_id: str, category: str) -> bool:
     """
     Обновляет настройки подписки пользователя
     
     Args:
         user_id: ID пользователя
-        settings: Настройки подписки
+        category: Категория для подписки
         
     Returns:
         bool: True если успешно, False если произошла ошибка
@@ -186,8 +186,8 @@ def update_user_subscription(user_id: str, settings: Dict[str, Any]) -> bool:
             {"user_id": user_id},
             {"$set": {
                 "user_id": user_id,
-                "enabled": settings.get('enabled', True),
-                "categories": settings.get('categories', []),
+                "enabled": True,
+                "category": category,
                 "updated_at": datetime.utcnow()
             }},
             upsert=True
@@ -209,61 +209,70 @@ def toggle_subscription(user_id: str) -> bool:
     """
     try:
         subscription = get_user_subscription(user_id)
-        subscription['enabled'] = not subscription.get('enabled', True)
-        update_user_subscription(user_id, subscription)
+        subscription['enabled'] = not subscription.get('enabled', False)
+        
+        db.subscriptions.update_one(
+            {"user_id": user_id},
+            {"$set": {
+                "enabled": subscription['enabled'],
+                "updated_at": datetime.utcnow()
+            }}
+        )
         return subscription['enabled']
     except Exception as e:
         logger.error(f"Ошибка при переключении подписки пользователя {user_id}: {str(e)}")
         return False
 
-def update_subscription_categories(user_id: str, categories: List[str]) -> bool:
+def get_subscribed_users() -> List[Dict[str, Any]]:
     """
-    Обновляет категории подписки пользователя
-    
-    Args:
-        user_id: ID пользователя
-        categories: Список категорий
-        
-    Returns:
-        bool: True если успешно, False если произошла ошибка
-    """
-    try:
-        subscription = get_user_subscription(user_id)
-        subscription['categories'] = categories
-        return update_user_subscription(user_id, subscription)
-    except Exception as e:
-        logger.error(f"Ошибка при обновлении категорий подписки пользователя {user_id}: {str(e)}")
-        return False
-
-def get_subscribed_users() -> List[str]:
-    """
-    Получает список ID пользователей с активными подписками
+    Получает список пользователей с активными подписками
     
     Returns:
-        List[str]: Список ID пользователей
+        List[Dict[str, Any]]: Список словарей с ID пользователя и категорией
     """
     try:
-        return [doc['user_id'] for doc in db.subscriptions.find(
+        return list(db.subscriptions.find(
             {"enabled": True},
-            {"user_id": 1, "_id": 0}
-        )]
+            {"user_id": 1, "category": 1, "_id": 0}
+        ))
     except Exception as e:
         logger.error(f"Ошибка при получении списка подписанных пользователей: {str(e)}")
         return []
 
-def get_user_categories(user_id: str) -> List[str]:
+def create_subscription(user_id: str) -> bool:
     """
-    Получает список категорий пользователя
+    Создает новую подписку для пользователя
     
     Args:
-        user_id: ID пользователя
+        user_id (str): ID пользователя
         
     Returns:
-        List[str]: Список категорий
+        bool: True если подписка успешно создана, False в противном случае
     """
     try:
-        subscription = get_user_subscription(user_id)
-        return subscription.get('categories', [])
+        # Проверяем, существует ли уже подписка
+        existing_subscription = db.subscriptions.find_one({"user_id": user_id})
+        if existing_subscription:
+            logger.info(f"Подписка для пользователя {user_id} уже существует")
+            return True
+            
+        # Создаем новую подписку
+        subscription = {
+            "user_id": user_id,
+            "enabled": False,
+            "category": None,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+        
+        result = db.subscriptions.insert_one(subscription)
+        if result.inserted_id:
+            logger.info(f"Создана новая подписка для пользователя {user_id}")
+            return True
+        else:
+            logger.error(f"Не удалось создать подписку для пользователя {user_id}")
+            return False
+            
     except Exception as e:
-        logger.error(f"Ошибка при получении категорий пользователя {user_id}: {str(e)}")
-        return [] 
+        logger.error(f"Ошибка при создании подписки: {str(e)}")
+        return False 

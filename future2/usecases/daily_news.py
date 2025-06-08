@@ -122,6 +122,7 @@ def test_embeddings():
 
 def analyze_trend(
     category: str,
+    analysis_date: str,
     embedding_type: str = "openai",
     openai_model: str = "text-embedding-3-small"
 ) -> Dict[str, Any]:
@@ -149,11 +150,11 @@ def analyze_trend(
         )
         
         # 1. Получаем все материалы за указанную дату
-        logger.info(f"Получаем материалы за {ANALYSIS_DATE} для категории: {category}")
+        logger.info(f"Получаем материалы за {analysis_date} для категории: {category}")
         
         try:
             # Преобразуем строку даты в datetime
-            target_date = datetime.strptime(ANALYSIS_DATE, "%Y-%m-%d")
+            target_date = datetime.strptime(analysis_date, "%Y-%m-%d")
             
             # Получаем материалы за указанную дату
             recent_materials = vector_store.search_by_category_and_date(
@@ -162,13 +163,13 @@ def analyze_trend(
             )
             
             if not recent_materials:
-                logger.warning(f"Не найдено материалов за {ANALYSIS_DATE}")
+                logger.warning(f"Не найдено материалов за {analysis_date}")
                 return {
                     'status': 'error',
-                    'message': f'Не найдено материалов за {ANALYSIS_DATE}'
+                    'message': f'Не найдено материалов за {analysis_date}'
                 }
                 
-            logger.info(f"Найдено {len(recent_materials)} материалов за {ANALYSIS_DATE}")
+            logger.info(f"Найдено {len(recent_materials)} материалов за {analysis_date}")
             
         except Exception as e:
             logger.error(f"Ошибка при получении материалов: {str(e)}")
@@ -259,7 +260,7 @@ def analyze_trend(
         
         Сформируй ответ в следующем формате:
 
-        📆 Сводка новостей — {category} ({ANALYSIS_DATE})
+        📆 Сводка новостей — {category} ({analysis_date})
 
         🎮 Главные события:
         [Для каждой главной новости]
@@ -314,7 +315,7 @@ if __name__ == "__main__":
             logger.warning("Необходимо обновить размерность в VectorStore и пересоздать коллекцию")
     
     # Пример использования
-    result = analyze_trend(ANALYSIS_CATEGORY)
+    result = analyze_trend(ANALYSIS_CATEGORY, ANALYSIS_DATE)
     
     if result['status'] == 'success':
         print("\nРезультаты анализа:")
